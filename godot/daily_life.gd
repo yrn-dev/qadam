@@ -77,9 +77,8 @@ func _process(delta:float) -> void:
 	if shift_was_open and not game.story.work_open():say("18:00 · Ауысым аяқталды. Қолыңдағы тапсырысты аяқтап, үйге қайт.")
 	shift_was_open=game.story.work_open()
 	var visible_game:bool=not game.menu_active() and game.captured and not game.story_ui.is_modal()
-	stamina_bar.visible=visible_game and game.story.stamina<99.5 and not busy
-	stamina_bar.value=game.story.stamina
-	stamina_caption.visible=stamina_bar.visible;stamina_caption.text="Күш-қуат: %d%%"%roundi(game.story.stamina)
+	stamina_bar.visible=false
+	stamina_caption.visible=false
 	notice_time=maxf(0,notice_time-delta);notice.visible=visible_game and notice_time>0
 	if busy:return
 	prompt.text="";prompt.visible=visible_game

@@ -9,7 +9,7 @@ var turn_signal:Node3D
 var clock:=0.0
 var phase:=7
 var phase_time:=0.0
-var durations:=[18.0,3.0,2.0,10.0,3.0,2.0,6.0,2.0]
+var durations:=[18.0,3.0,2.0,10.0,3.0,2.0,10.0,2.0]
 var gate_passages:=0
 var exit_blocks:=0
 var max_stop_time:=0.0
@@ -19,6 +19,7 @@ var stopped_events:=0
 var max_queue:=0
 var cycles:=0
 var pedestrian_hold:=false
+var ped_hold_time:=0.0
 var minimum_gap:=1000.0
 
 func _ready() -> void:
@@ -185,7 +186,12 @@ func tick(delta:float) -> void:
 			if progress>needed and progress<car.length*.5:
 				car.active_gate={};car.passages+=1;gate_passages+=1
 			else:occupied=true
-	var hold_clearance:bool=phase in [2,5,7] and (occupied or pedestrian_hold)
+	var in_clearance:bool=phase in [2,5,7]
+	if in_clearance and pedestrian_hold:ped_hold_time+=delta
+	elif not in_clearance:ped_hold_time=0.0
+	# A stuck walker must not hold the intersection forever: after 4 s the
+	# phase advances; approaching cars still yield to anyone on the road.
+	var hold_clearance:bool=in_clearance and (occupied or (pedestrian_hold and ped_hold_time<4.0))
 	if phase_time>=durations[phase] and not hold_clearance:
 		phase_time=0
 		phase=(phase+1)%durations.size()

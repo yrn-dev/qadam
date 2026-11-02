@@ -29,12 +29,19 @@ var last_words:=""
 var last_actor:=""
 var pending_words:=""
 var pending_actor:=""
+var last_voice_check:=0.0
+var voice_peak_rms:=0.0
+var voice_quiet_since:=0.0
 
 func _ready() -> void:
 	game=get_parent();speaker=AudioStreamPlayer.new();add_child(speaker)
-	speaker.bus="Nazerke Master" if AudioServer.get_bus_index("Nazerke Master")>=0 else "Master"
+	var voice_bus:=AudioServer.get_bus_index("Nazerke Voice")
+	var master_bus:=AudioServer.get_bus_index("Nazerke Master")
+	speaker.bus="Nazerke Voice" if voice_bus>=0 else ("Nazerke Master" if master_bus>=0 else "Master")
+	speaker.volume_db=6.0 # 200% — dialogue clearly louder than the world
 	var config:=ConfigFile.new()
 	if config.load("user://voice.cfg")==OK:enabled=bool(config.get_value("voice","enabled",true))
+	if not game.automated:get_tree().create_timer(3.0).timeout.connect(ensure_service) # keep the voice service warm
 
 func ensure_service() -> void:
 	if game.automated and not "--voice-live" in OS.get_cmdline_user_args():return
@@ -72,7 +79,7 @@ func set_enabled(value:bool) -> void:
 func speaker_id(actor:String) -> int:
 	if game.story_ui.actors.has(actor):
 		var character:String=game.story_ui.actors[actor].character_id
-		return [2,3,4,5][posmod(actor.hash(),4)] if character in ["girl","asel"] else posmod(actor.hash(),2)
+		return [2,3,4,5][posmod(actor.hash(),4)] if character in ["asel","dana","aruzhan"] else posmod(actor.hash(),2)
 	return 1
 
 func audio_key(words:String,sid:int) -> String:
@@ -120,7 +127,8 @@ func toggle_recording() -> void:
 		recorder=AudioEffectRecord.new();recorder.format=AudioStreamWAV.FORMAT_16_BITS;AudioServer.add_bus_effect(bus,recorder)
 		mic=AudioStreamPlayer.new();mic.stream=AudioStreamMicrophone.new();mic.bus="NazerkeMicrophone";add_child(mic)
 	recorder.set_recording_active(true);mic.play();recording=true;started_at=Time.get_ticks_msec()/1000.0
-	feedback.emit("Тыңдап тұрмын… Аяқтау үшін «Тоқтату» бас · 30 секундқа дейін.");changed.emit()
+	last_voice_check=0.0;voice_peak_rms=0.0;voice_quiet_since=0.0
+	feedback.emit("Тыңдап тұрмын… Сөйлесіп болсаңыз — сәл үнсіз қалыңыз, мен өзім аяқтаймын.");changed.emit()
 
 func finish_recording() -> void:
 	if not recording:return
@@ -163,8 +171,33 @@ func post(kind:String,data:Dictionary,retry:int=0) -> void:
 	changed.emit()
 
 func _process(_delta:float) -> void:
-	if recording and Time.get_ticks_msec()/1000.0-started_at>=30:finish_recording()
-	if recording and not game.captured:stop()
+	if not recording:return
+	var now:=Time.get_ticks_msec()/1000.0
+	if now-started_at>=30:finish_recording();return
+	if not game.captured:stop();return
+	# Auto-stop right after the speaker pauses — no waiting for a button.
+	if now-last_voice_check>=0.25:
+		last_voice_check=now
+		var tail:AudioStreamWAV=recorder.get_recording()
+		if tail!=null and not tail.data.is_empty():
+			var start:=tail.data.size()-int(tail.mix_rate*0.35)*2
+			if start<0:start=0
+			var sum:=0.0;var count:=0
+			var end:=tail.data.size()-1
+			var i:=start
+			while i<=end:
+				var s:int=tail.data[i] | (tail.data[i+1]<<8)
+				if s>=32768:s-=65536
+				sum+=s*s;count+=1;i+=8
+			if count>0:
+				var rms:=sqrt(sum/count)
+				if rms>voice_peak_rms:voice_peak_rms=rms
+				# Adaptive: quiet means 20% below the speaker's own peak level.
+				var quiet_threshold:=maxf(25.0,voice_peak_rms*0.2)
+				if rms>=quiet_threshold:voice_quiet_since=0.0
+				elif voice_quiet_since<=0.0:voice_quiet_since=now
+	# Auto-stop right after the speaker pauses — no waiting for a button.
+	if voice_peak_rms>=40.0 and voice_quiet_since>0.0 and now-voice_quiet_since>1.15:finish_recording()
 
 func _exit_tree() -> void:
 	if is_instance_valid(mic):mic.stop()

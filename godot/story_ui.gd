@@ -63,8 +63,8 @@ func _ready() -> void:
 	hint.offset_left=-350;hint.offset_right=350;hint.offset_top=-130;hint.offset_bottom=-95
 	hint.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER;hint.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	hint.add_theme_color_override("font_outline_color",Color("102029"));hint.add_theme_constant_override("outline_size",6)
-	info=PanelContainer.new();root.add_child(info);info.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
-	info.offset_left=-365;info.offset_right=-20;info.offset_top=20
+	info=PanelContainer.new();root.add_child(info);info.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
+	info.offset_left=20;info.offset_right=385;info.offset_top=96;info.offset_bottom=0
 	info.add_theme_stylebox_override("panel",_style(Color(.04,.08,.1,.9),12))
 	var info_box:=VBoxContainer.new();info.add_child(info_box)
 	clock_label=_label(info_box,"",16);task=_label(info_box,"",16);task.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
@@ -90,8 +90,13 @@ func _register_actors() -> void:
 		var id:="citizen_%02d"%int(w.id)
 		if not actors.has(id):actors[id]=w.node;w.node.set_meta("npc_id",id)
 	for i in game.shop_visits.rooms.size():
-		var actor:Node3D=game.shop_visits.rooms[i].cashier
+		var room:Node3D=game.shop_visits.rooms[i]
+		var actor:Node3D=room.cashier
 		var id:="cashier_%d"%i;actors[id]=actor;actor.set_meta("npc_id",id)
+		# The salon keeps its own living staff: stylist, attendant and clients.
+		if "talkable_actors" in room:
+			for pair in room.talkable_actors:
+				if not actors.has(pair.id):actors[pair.id]=pair.actor;pair.actor.set_meta("npc_id",pair.id)
 
 func ray_target() -> String:
 	if game.overview or game.shop_visits.busy or game.home_visits.busy:return ""
@@ -118,6 +123,7 @@ func _physics_process(delta:float) -> void:
 	reticle.modulate=Color("8cddbb") if not target_id.is_empty() else Color.WHITE
 	hint.text="Сол жақ батырма · Сөйлесу — "+str(profiles[target_id].name) if not target_id.is_empty() else ""
 	if not is_modal() and game.captured and game.story.can_deliver():hint.text="E · Тапсырысты беру — "+game.story.address()
+	elif not is_modal() and game.captured and game.story.can_deliver_salon():hint.text="E · Салонға тапсырысты беру — Аружан"
 func _process(delta:float) -> void:
 	refresh-=delta
 	if refresh>0:return
@@ -266,6 +272,7 @@ func _context_phrase() -> void:
 	var words:="Сәлеметсіз бе! Менің атым Натан."
 	if active_id.begins_with("cashier_"):words="Сәлеметсіз бе! Мен жұмыс іздеп жүрмін."
 	elif active_id.begins_with("resident_"):words="Сәлеметсіз бе! Тапсырысыңызды алып келдім."
+	elif active_id.begins_with("salon_"):words="Сәлеметсіз бе! Салонға тапсырыс алып келдім."
 	_quick_message(words)
 func open_chat(id:String) -> void:
 	if not profiles.has(id) or not actors.has(id):return
@@ -276,6 +283,7 @@ func open_chat(id:String) -> void:
 	draft.clear();status.text="";phrase_help.text="Тірек сөздер: сәлеметсіз бе · менің атым · рақмет"
 	if id.begins_with("cashier_"):phrase_help.text="Тірек сөздер: жұмыс іздеймін · курьер · тапсырыс · еңбекақы"
 	elif id.begins_with("resident_"):phrase_help.text="Тірек сөздер: тапсырысыңыз · алып келдім · алыңыз · сау болыңыз"
+	elif id.begins_with("salon_"):phrase_help.text="Тірек сөздер: тапсырыс · алып келдім · сақын · рақмет"
 	_draw_messages();_update_job_button();_make_portrait(actors[id]);draft.grab_focus()
 	game.speech.expected="";practice_button.text="Қайталап айту"
 	voice_status.text="Қазақша айт немесе мәтін жаз. Жібермес бұрын мәтінді тексер."
@@ -305,6 +313,16 @@ func _update_job_button() -> void:
 	job_button.visible=shop>=0
 	job_button.disabled=false
 	if shop<0:return
+	if shop==4:
+		if game.story.salon_phase<0:
+			job_button.text="Салон тапсырысы · 900–1400 ₸"
+		elif game.story.salon_phase==1:
+			job_button.text="Зат: %s — BEREKE кассасынан алыңыз (E)"%game.story.salon_item
+			job_button.disabled=true
+		else:
+			job_button.text="Зат қолыңда · «ANA BEAUTY» салонына апар"
+			job_button.disabled=true
+		return
 	if shop==3:
 		job_button.text="Бұл дүкен сенікі · жабдықтау кейін" if game.story.owns_shop else "Дүкен сатып алу · 1 000 000 ₸"
 		job_button.disabled=game.story.owns_shop or game.story.money<game.story.SHOP_PRICE
@@ -321,6 +339,10 @@ func _update_job_button() -> void:
 func _job_action() -> void:
 	if waiting or job_button.disabled:return
 	var shop:int=profiles[active_id].shop
+	if shop==4:
+		if game.story.take_salon_order(4):status.text="Берілді! BEREKE дүкенінен %s алып, «ANA BEAUTY» салонына жеткіз."%game.story.salon_item
+		else:status.text="Қазір салон тапсырысын қабылдау мүмкін емес."
+		_update_job_button();return
 	if shop==3:purchase_confirm.popup_centered(Vector2i(520,220));return
 	if game.story.employer<0:
 		if game.story.hire(shop):status.text="Жұмысқа қабылдандың! Алғашқы тапсырысты ал."
@@ -385,6 +407,7 @@ func _reply(result:int,code:int,_headers:PackedStringArray,body:PackedByteArray,
 	draft.clear();status.text="";phrase_help.text="Тірек сөздер: сәлеметсіз бе · менің атым · рақмет"
 	if id.begins_with("cashier_"):phrase_help.text="Тірек сөздер: жұмыс іздеймін · курьер · тапсырыс · еңбекақы"
 	elif id.begins_with("resident_"):phrase_help.text="Тірек сөздер: тапсырысыңыз · алып келдім · алыңыз · сау болыңыз"
+	elif id.begins_with("salon_"):phrase_help.text="Тірек сөздер: тапсырыс · алып келдім · сақын · рақмет"
 	_draw_messages();draft.grab_focus()
 	if not game.automated:game.speech.speak(reply,id)
 func _finish_request() -> void:

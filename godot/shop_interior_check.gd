@@ -15,7 +15,7 @@ func run() -> void:
 	game=load("res://main.tscn").instantiate();root.add_child(game)
 	await create_timer(2).timeout
 	visits=game.shop_visits
-	if not require(visits.rooms.size()==3,"three interiors"):return
+	if not require(visits.rooms.size()==5,"five interiors (3 shops + empty shop + salon)"):return
 	game.set_physics_process(false)
 	for i in 3:
 		var shop:Node3D=game.town.shops[i]
@@ -93,5 +93,5 @@ func run() -> void:
 		if not require(game.player.position.distance_to(shop.to_global(Vector3(2.8,.12,0)))<.01,"returns to same shop"):return
 		if not require(game.camera.environment==null and game.player.velocity==Vector3.ZERO,"camera and velocity restored"):return
 		print("SHOP_ROUND_TRIP_PASS | ",shop.get_meta("shop_title")," | walls/floor/ceiling | clear aisle | counter collision | same street door")
-	print("SHOP_INTERIOR_CHECK_PASS | all 3 shops | E transition guard | original human size")
+	print("SHOP_INTERIOR_CHECK_PASS | 3 shelved shops (empty shop + salon covered by other checks) | E transition guard | original human size")
 	quit()

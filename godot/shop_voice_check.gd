@@ -9,7 +9,7 @@ func check(ok:bool,label:String) -> void:
 func run() -> void:
 	game=load("res://main.tscn").instantiate();root.add_child(game);await create_timer(3).timeout
 	game.set_physics_process(false);game.story.set_process(false)
-	check(game.town.shops.size()==4,"four shops")
+	check(game.town.shops.size()==5,"five shops")
 	var shop:Node3D=game.town.shops[3]
 	var box:AABB=game.town.footprints.back()
 	for i in game.town.footprints.size()-1:

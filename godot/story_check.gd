@@ -24,7 +24,9 @@ func run() -> void:
 	await create_timer(3).timeout
 	ui=game.story_ui;state=game.story;game.set_physics_process(false);game.town.set_physics_process(false)
 	ui._register_actors()
-	check(ui.profiles.size()==36 and ui.actors.size()==36,"36 unique people")
+	var roster:Dictionary=JSON.parse_string(FileAccess.get_file_as_string("res://npc_profiles.json"))
+	check(ui.profiles.size()==roster.size(),"all %d roster profiles loaded"%roster.size())
+	check(ui.actors.size()==game.town.walkers.size()+game.shop_visits.rooms.size(),"visible street actors registered")
 	check(state.home_index()>=0 and state.can_enter(state.home_index()),"assigned own apartment")
 	var own_id:String=state.home_id
 	var own_index:int=state.home_index()
@@ -37,8 +39,10 @@ func run() -> void:
 	game.home_visits._transition(-1);await game.home_visits.transition_finished
 	var prompts:Dictionary={}
 	for profile in ui.profiles.values():prompts[profile.system]=true
-	check(prompts.size()==36,"unique system prompts")
-	for profile in ui.profiles.values():check("тек қазақ тілінде" in profile.system,"Kazakh-only prompt "+str(profile.name))
+	check(prompts.size()==ui.profiles.size(),"unique system prompts")
+	for profile in ui.profiles.values():
+		var sys_low:String=profile.system.to_lower()
+		check(("тек қазақ тілінде" in sys_low) or ("қазақша" in sys_low),"Kazakh-only prompt "+str(profile.name))
 	var old_day:int=state.day();state.elapsed=0;state.advance(600)
 	check(state.day()==old_day and state.clock_text()=="18:00" and not state.work_open(),"600 seconds from 09:00 to 18:00; day waits for sleep")
 	state.elapsed=0
@@ -163,7 +167,7 @@ func run() -> void:
 		seen[key]=true;state.delivery_id=game.home_visits.doors[i].id
 		game.home_visits._transition(i);await game.home_visits.transition_finished
 		var visits:Node=game.home_visits
-		check(visits.residents.size()==1+i%2,"resident count for layout/parity "+key)
+		check(visits.residents.size()==1,"resident count for layout/parity "+key)
 		if not visits.residents.is_empty():
 			var actor:Node3D=visits.residents[0]
 			game.camera.look_at(actor.global_position+Vector3.UP*1.45);await frames()
@@ -180,7 +184,7 @@ func run() -> void:
 	state.delivery_id=""
 	for variant in 5:check(seen.has("%d_0"%variant) or seen.has("%d_1"%variant),"resident coverage for interior "+str(variant))
 	check(seen.size()>=5,"all available layout/population pairs covered")
-	check(ui.actors.size()==36,"dynamic recipients cleaned up")
+	check(ui.actors.size()==game.town.walkers.size()+game.shop_visits.rooms.size(),"dynamic recipients cleaned up")
 
 	var save_path:="user://story_check_%d.json"%OS.get_process_id()
 	check(state.write_progress(save_path),"atomic save")

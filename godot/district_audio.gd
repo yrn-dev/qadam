@@ -18,12 +18,14 @@ var mute_button:CheckButton
 var volumes:Dictionary={"Master":.8,"Music":.65,"Street":.8,"Foley":.8}
 var muted:=false
 var pause_gain:=0.0
+var voice_duck:=1.0
+var voice_held:=0.0
 var street_gain:=0.0
 var music_gain:=0.0
 var room_gain:=0.0
 var context:="street"
 var shop_id:=-1
-var music_positions:=[0.0,20.0,40.0,0.0]
+var music_positions:=[0.0,20.0,40.0,0.0,25.0]
 var selection_clock:=0.0
 var last_position:=Vector3.ZERO
 var step_distance:=0.0
@@ -51,6 +53,13 @@ func _ready() -> void:
 		AudioServer.set_bus_send(index,"Master" if key=="Master" else PREFIX+"Master")
 	var limiter:=AudioEffectLimiter.new();limiter.ceiling_db=-2.0
 	AudioServer.add_bus_effect(AudioServer.get_bus_index(PREFIX+"Master"),limiter)
+	# Dedicated voice bus: gentle low-cut + presence shelf, so dialogue stays
+	# clean and clear above the neighbourhood.
+	AudioServer.add_bus();var voice_index:=AudioServer.bus_count-1
+	AudioServer.set_bus_name(voice_index,PREFIX+"Voice")
+	AudioServer.set_bus_send(voice_index,PREFIX+"Master")
+	var high_pass:=AudioEffectHighPassFilter.new();high_pass.cutoff_hz=110.0
+	AudioServer.add_bus_effect(voice_index,high_pass)
 	var filter:=AudioEffectLowPassFilter.new();filter.cutoff_hz=650
 	AudioServer.add_bus_effect(AudioServer.get_bus_index(PREFIX+"Room"),filter)
 	for file in ["street","engine","shop_music","shop_bell","door_open","door_close"]:
@@ -150,6 +159,16 @@ func _process(delta:float) -> void:
 	street.stream_paused=pause_gain<.001 or street_gain<.001
 	room_tone.stream_paused=pause_gain<.001 or room_gain<.001
 	music.stream_paused=pause_gain<.001 or music_gain<.001
+	# While a character speaks, the whole neighbourhood fades away so only a
+	# clean voice is heard; it returns gently after the line ends.
+	var voice:bool=is_instance_valid(game.speech) and game.speech.speaker.playing
+	voice_held=0.85 if voice else maxf(0.0,voice_held-delta)
+	var duck_target:float=0.02 if voice_held>0.0 else 1.0
+	voice_duck=move_toward(voice_duck,duck_target,delta*(10.0 if duck_target<voice_duck else 2.0))
+	AudioServer.set_bus_volume_db(AudioServer.get_bus_index(PREFIX+"Street"),linear_to_db(maxf(volumes.Street*voice_duck,.0001)))
+	AudioServer.set_bus_volume_db(AudioServer.get_bus_index(PREFIX+"Music"),linear_to_db(maxf(volumes.Music*voice_duck,.0001)))
+	AudioServer.set_bus_volume_db(AudioServer.get_bus_index(PREFIX+"Foley"),linear_to_db(maxf(volumes.Foley*voice_duck,.0001)))
+	AudioServer.set_bus_volume_db(AudioServer.get_bus_index(PREFIX+"Room"),linear_to_db(maxf(volumes.Street*voice_duck,.0001)))
 	if not game.captured:steps.stop()
 	_update_engines(delta)
 
@@ -236,6 +255,6 @@ func _step(gain:float) -> void:
 	_gain(steps,gain*rng.randf_range(.94,1.03));steps.play();step_count+=1
 
 func _exit_tree() -> void:
-	for key in ["Room","Foley","Street","Music","Master"]:
+	for key in ["Room","Foley","Street","Music","Voice","Master"]:
 		var index:=AudioServer.get_bus_index(PREFIX+key)
 		if index>0:AudioServer.remove_bus(index)

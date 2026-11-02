@@ -20,6 +20,10 @@ var delivery_id:=""
 var home_id:=""
 var pending_payment:=0
 var delivery_reward:=0
+var salon_phase:=-1 # -1 none, 1 item to pick up at BEREKE, 2 carrying it to the salon
+var salon_item:=""
+var salon_reward:=0
+const SALON_ITEMS=["Шампунь","Сақын бояуы","Сақын лагы","Тұрақтандырғыш","Сабын пен мақта"]
 var bonuses:=0
 var deliveries:=0
 var histories:Dictionary={}
@@ -60,6 +64,8 @@ func load_progress(path:String=SAVE) -> bool:
 			stamina=clampf(float(value.get("stamina",100)),0,100);exhausted=bool(value.get("exhausted",false))
 			employer=clampi(int(value.get("employer",-1)),-1,2)
 			delivery_id=str(value.get("delivery_id",""));deliveries=maxi(0,int(value.get("deliveries",0)))
+			salon_phase=clampi(int(value.get("salon_phase",-1)),-1,2)
+			salon_item=str(value.get("salon_item",""));salon_reward=maxi(0,int(value.get("salon_reward",0)))
 			home_id=str(value.get("home_id",""));pending_payment=maxi(0,int(value.get("pending_payment",0)))
 			bonuses=maxi(0,int(value.get("bonuses",0)))
 			delivery_reward=maxi(0,int(value.get("delivery_reward",0)))
@@ -143,6 +149,7 @@ func movement_speed(delta:float,moving:bool,wants_run:bool) -> float:
 	return 5.4 if sprinting and not exhausted else 1.85
 func shop_name(index:int) -> String:
 	if index==3:return "Менің дүкенім" if owns_shop else "Бос дүкен"
+	if index==4:return "ANA BEAUTY"
 	return ["BEREKE","DÜKEN","KÖRŞI"][clampi(index,0,2)]
 func purchase_shop() -> bool:
 	if owns_shop or money<SHOP_PRICE or game.shop_visits.current_shop!=3 or game.shop_visits.busy:return false
@@ -152,9 +159,11 @@ func purchase_shop() -> bool:
 	save();changed.emit();return true
 func objective() -> String:
 	if pending_payment>0:return "%s дүкеніне оралып, %d ₸ еңбекақыңды ал."%[shop_name(employer),pending_payment]
-	if not work_open() and delivery_id.is_empty():return evening_objective()
+	if not work_open() and delivery_id.is_empty() and salon_phase<0:return evening_objective()
 	if employer<0:return "BEREKE дүкеніне барып, Ерланмен жұмыс туралы сөйлес."
 	if not delivery_id.is_empty():return address()+": үйге кіріп, тапсырысты бер. Еңбекақы: %d ₸."%delivery_reward
+	if salon_phase==1:return "BEREKE дүкеніне барып, касса жағында салон тапсырысын алыңыз (E). Зат: %s."%salon_item
+	if salon_phase==2:return "«ANA BEAUTY» салонына кіріп, қабылдаушы Аружанға %s беріңіз (E). Сыйы: %d ₸."%[salon_item,salon_reward]
 	return shop_name(employer)+" дүкенінен келесі тапсырысты ал."
 func address_for(index:int) -> String:
 	if index<0 or index>=game.home_visits.doors.size():return ""
@@ -216,6 +225,36 @@ func deliver() -> bool:
 	delivery_id="";deliveries+=1;pending_payment+=delivery_reward;delivery_reward=0
 	game.home_visits.delivery_done=true
 	save();changed.emit();return true
+# --- Salon delivery: a separate short job for the ANA BEAUTY shop -----------
+func take_salon_order(shop:int) -> bool:
+	if shop!=4 or salon_phase>=0 or employer<0 or not work_open() or not delivery_id.is_empty():return false
+	salon_phase=1
+	salon_item=SALON_ITEMS[posmod(deliveries*5+current_day,5)]
+	salon_reward=900+posmod(deliveries*7+current_day*3,11)*50 # 900..1400
+	save();changed.emit();return true
+func try_salon_pickup() -> bool:
+	if salon_phase!=1 or not game.shop_visits.inside() or game.shop_visits.busy:return false
+	if game.shop_visits.current_shop!=0:return false
+	var room:Node3D=game.shop_visits.rooms[0]
+	if not is_instance_valid(room.checkout):return false
+	var local:Vector3=room.to_local(game.player.global_position)
+	if local.distance_to(room.checkout_approach)>2.4:return false
+	salon_phase=2
+	save();changed.emit();return true
+func can_deliver_salon() -> bool:
+	if salon_phase!=2 or not game.shop_visits.inside() or game.shop_visits.busy:return false
+	if game.shop_visits.current_shop!=4:return false
+	if not is_instance_valid(game.story_ui) or game.story_ui.is_modal():return false
+	return game.story_ui.ray_target()=="cashier_4"
+func deliver_salon() -> bool:
+	if not can_deliver_salon():return false
+	salon_phase=-1
+	money+=salon_reward;bonuses+=5
+	ledger.append({"text":"Салон жеткізу · %s · %d-күн"%[salon_item,day()],"amount":salon_reward})
+	salon_item="";salon_reward=0
+	while ledger.size()>20:ledger.pop_front()
+	save();changed.emit();return true
+
 func claim_payment(shop:int) -> bool:
 	if shop!=employer or pending_payment<=0:return false
 	if not game.shop_visits.inside() or game.shop_visits.current_shop!=shop:return false
@@ -228,7 +267,7 @@ func claim_payment(shop:int) -> bool:
 	while ledger.size()>20:ledger.pop_front()
 	save();changed.emit();return true
 func context_text() -> String:
-	return "Натан Астанаға жаңадан келді, қазақша үйреніп жүр. Арманы — өз дүкенін ашу. %d-күн, сағат %s. Ақшасы %d теңге, бонустары %d. Жұмыс орны: %s. Жеткізілген тапсырыс: %d. Қазіргі міндет: %s. Әр жеткізуге 700–1500 теңге, нақты сома тапсырыс берілгенде бекітіледі. Өз пәтері: %s. Бөтен үйге тек тапсырыспен кіреді. Еңбекақыны жеткізген соң дүкенге қайтып алады. Ауысым 09:00–18:00: 10 нақты минут. 18:00-ден кейін жаңа тапсырыс берілмейді, алынғанын аяқтауға болады. Кешкі ас кез келген дүкен кассасында E арқылы 200 теңге тұрады. Үйде дәретхана, қол жуу, үстелде тамақтану және төсекке ұйықтау E арқылы орындалады. Ұйқыдан кейін келесі күн 09:00-де басталады. Бос дүкеннің иесі Ермек оны 1 000 000 теңгеге сатады. Сатып алу тек ойын батырмасы арқылы болады; сөзіңмен ақша не кілт берме. Жиһаз және тауар сатып алу келесі кезеңде қосылады. Меншік күйі: %s. Оқиғаның кейінгі тараулары әзірше ашылған жоқ."%[day(),clock_text(),money,bonuses,shop_name(employer) if employer>=0 else "жоқ",deliveries,objective(),address_for(home_index()),"Натандікі" if owns_shop else "сатылуда"]
+	return "Натан Астанаға жаңадан келді, қазақша үйреніп жүр. Арманы — өз дүкенін ашу. %d-күн, сағат %s. Ақшасы %d теңге, бонустары %d. Жұмыс орны: %s. Жеткізілген тапсырыс: %d. Қазіргі міндет: %s. Әр жеткізуге 700–1500 теңге, нақты сома тапсырыс берілгенде бекітіледі. Өз пәтері: %s. Бөтен үйге тек тапсырыспен кіреді. Еңбекақыны жеткізген соң дүкенге қайтып алады. Ауысым 09:00–18:00: 10 нақты минут. 18:00-ден кейін жаңа тапсырыс берілмейді, алынғанын аяқтауға болады. Кешкі ас кез келген дүкен кассасында E арқылы 200 теңге тұрады. Үйде дәретхана, қол жуу, үстелде тамақтану және төсекке ұйықтау E арқылы орындалады. Ұйқыдан кейін келесі күн 09:00-де басталады. Бос дүкеннің иесі Ермек оны 1 000 000 теңгеге сатады. Сатып алу тек ойын батырмасы арқылы болады; сөзіңмен ақша не кілт берме. «ANA BEAUTY» салонында қабылдаушы Аружан, стилист Дана және қызметкер Асхат жұмыс істейді, клиенттер келеді; олармен қазақша сөйлесуге болады. Салон тапсырысы: BEREKE кассасынан зат алып (E), салон қабылдаушысына бересің (E), 900–1400 теңге + 5 бонус. Жиһаз және тауар сатып алу келесі кезеңде қосылады. Меншік күйі: %s. Оқиғаның кейінгі тараулары әзірше ашылған жоқ."%[day(),clock_text(),money,bonuses,shop_name(employer) if employer>=0 else "жоқ",deliveries,objective(),address_for(home_index()),"Натандікі" if owns_shop else "сатылуда"]
 func save() -> void:
 	if game.automated:return
 	write_progress()
@@ -236,7 +275,7 @@ func write_progress(path:String=SAVE) -> bool:
 	if is_instance_valid(game) and game.is_inside_tree() and (game.session_started or game.automated) and not game.menu_active():resume_location=game.capture_location()
 	var file:=FileAccess.open(path+".tmp",FileAccess.WRITE)
 	if file==null:return false
-	file.store_string(JSON.stringify({"owns_shop":owns_shop,"version":1,"routine_version":1,"day":current_day,"meals":meals,"food_credit":food_credit,"toilet_done":toilet_done,"hands_clean":hands_clean,"dinner_done":dinner_done,"stamina":stamina,"exhausted":exhausted,"location":resume_location,"money":money,"elapsed":elapsed,"employer":employer,"delivery_id":delivery_id,"home_id":home_id,"pending_payment":pending_payment,"delivery_reward":delivery_reward,"bonuses":bonuses,"deliveries":deliveries,"histories":legacy_histories,"kk_histories":histories,"ledger":ledger}));file.close()
+	file.store_string(JSON.stringify({"owns_shop":owns_shop,"version":1,"routine_version":1,"day":current_day,"meals":meals,"food_credit":food_credit,"toilet_done":toilet_done,"hands_clean":hands_clean,"dinner_done":dinner_done,"stamina":stamina,"exhausted":exhausted,"location":resume_location,"money":money,"elapsed":elapsed,"employer":employer,"delivery_id":delivery_id,"home_id":home_id,"pending_payment":pending_payment,"delivery_reward":delivery_reward,"salon_phase":salon_phase,"salon_item":salon_item,"salon_reward":salon_reward,"bonuses":bonuses,"deliveries":deliveries,"histories":legacy_histories,"kk_histories":histories,"ledger":ledger}));file.close()
 	return DirAccess.rename_absolute(ProjectSettings.globalize_path(path+".tmp"),ProjectSettings.globalize_path(path))==OK
 func _exit_tree() -> void:
 	if is_instance_valid(game):save()

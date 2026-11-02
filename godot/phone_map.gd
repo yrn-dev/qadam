@@ -42,6 +42,8 @@ func update_route() -> void:
 		target_name="Менің пәтерім · "+game.story.address_for(game.story.home_index())
 	elif selected_shop==3:
 		target=game.town.to_local(game.town.shops[3].to_global(Vector3(2.8,.12,0)));target_name=game.story.shop_name(3)
+	elif selected_shop==4:
+		target=game.town.to_local(game.town.shops[4].to_global(Vector3(4.1,.12,0)));target_name=game.story.shop_name(4)
 	elif not game.story.delivery_id.is_empty():
 		var d:Dictionary=game.home_visits.doors[game.story.delivery_index()]
 		target=game.town.to_local(d.landing);target_name=game.story.address()
@@ -51,7 +53,7 @@ func update_route() -> void:
 			if game.story.employer>=0:selected_shop=game.story.employer
 			else:
 				var closest:=INF
-				for i in 3:
+				for i in game.town.shops.size():
 					var distance:float=game.town.shops[i].position.distance_squared_to(origin)
 					if distance<closest:closest=distance;selected_shop=i
 		target=game.town.to_local(game.town.shops[selected_shop].to_global(Vector3(2.8,.12,0)))

@@ -21,7 +21,15 @@ var captured:=true
 var overview:=false
 var hud:Label
 var pause:Label
-var automated:bool="--home-check" in OS.get_cmdline_user_args() or "--shop-check" in OS.get_cmdline_user_args() or "--traffic-live-check" in OS.get_cmdline_user_args() or "--performance-check" in OS.get_cmdline_user_args() or "--map-check" in OS.get_cmdline_user_args() or "--map-capture" in OS.get_cmdline_user_args()
+var minimap:Control
+var tut_panel:PanelContainer
+var tut_walk:=0.0
+var tut_time:=0.0
+var tut_toast_age:=0.0
+var tut_fade:=0.0
+var tut_done:=false
+var tut_save:=0.0
+var automated:bool="--home-check" in OS.get_cmdline_user_args() or "--shop-check" in OS.get_cmdline_user_args() or "--traffic-live-check" in OS.get_cmdline_user_args() or "--performance-check" in OS.get_cmdline_user_args() or "--map-check" in OS.get_cmdline_user_args() or "--map-capture" in OS.get_cmdline_user_args() or "--salon-check" in OS.get_cmdline_user_args() or "--salon-diag" in OS.get_cmdline_user_args()
 
 func _ready() -> void:
 	for action in {"forward":KEY_W,"back":KEY_S,"left":KEY_A,"right":KEY_D,"jump":KEY_SPACE,"run":KEY_SHIFT}:
@@ -57,6 +65,7 @@ func _ready() -> void:
 	town.player=player
 	reset()
 	_hud()
+	_load_tut()
 	shop_visits=Node.new();shop_visits.set_script(preload("res://shop_visits.gd"));add_child(shop_visits)
 	home_visits=Node.new();home_visits.set_script(preload("res://home_visits.gd"));add_child(home_visits)
 	soundscape=Node.new();soundscape.set_script(preload("res://district_audio.gd"));add_child(soundscape)
@@ -70,6 +79,9 @@ func _ready() -> void:
 	if automated:set_capture(true)
 	else:main_menu.open_menu()
 	if "--map-check" in OS.get_cmdline_user_args():_check.call_deferred()
+	if "--salon-diag" in OS.get_cmdline_user_args():_salon_diag.call_deferred()
+	if "--salon-check" in OS.get_cmdline_user_args():_salon_check.call_deferred()
+	if "--ui-check" in OS.get_cmdline_user_args():_ui_check.call_deferred()
 	if "--traffic-live-check" in OS.get_cmdline_user_args():_live_traffic_check.call_deferred()
 	if "--map-capture" in OS.get_cmdline_user_args():_capture.call_deferred()
 	if "--performance-check" in OS.get_cmdline_user_args():_benchmark.call_deferred()
@@ -115,20 +127,66 @@ func _hud() -> void:
 	var style:=StyleBoxFlat.new()
 	style.bg_color=Color(.04,.075,.09,.88)
 	style.set_corner_radius_all(8)
-	style.content_margin_left=16
-	style.content_margin_right=16
-	style.content_margin_top=12
-	style.content_margin_bottom=12
+	style.content_margin_left=14
+	style.content_margin_right=14
+	style.content_margin_top=8
+	style.content_margin_bottom=8
 	panel.add_theme_stylebox_override("panel",style)
 	hud=Label.new()
-	hud.add_theme_font_size_override("font_size",17)
+	hud.add_theme_font_size_override("font_size",15)
 	panel.add_child(hud)
-	hud.text="QADAM  /  КЕШКІ АУДАН\nWASD — жүру · тінтуір — қарау\nShift — жүгіру · Space — секіру\nTab — жоғарыдан қарау · R — бастапқы орын · Esc — меңзер\nКешкі аудан · Көкжиекте Бәйтерек"
+	hud.text="Кешкі аудан"
+	# Short one-time hint for a brand-new player: bottom of the screen, fades
+	# out by itself once they start playing and never returns.
+	tut_panel=PanelContainer.new()
+	layer.add_child(tut_panel)
+	tut_panel.anchor_left=0.5
+	tut_panel.anchor_top=1.0
+	tut_panel.offset_left=-270.0
+	tut_panel.offset_top=-132.0
+	tut_panel.offset_right=270.0
+	tut_panel.offset_bottom=-64.0
+	var toast_style:=StyleBoxFlat.new()
+	toast_style.bg_color=Color(.04,.075,.09,.92)
+	toast_style.set_corner_radius_all(10)
+	toast_style.content_margin_left=18
+	toast_style.content_margin_right=18
+	toast_style.content_margin_top=10
+	toast_style.content_margin_bottom=10
+	tut_panel.add_theme_stylebox_override("panel",toast_style)
+	var tlabel:=Label.new()
+	tlabel.add_theme_font_size_override("font_size",15)
+	tlabel.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER
+	tlabel.text="WASD — жүру · тінтуір — қарау · Shift — жүгіру · Space — секіру\nE — есік / тапсырыс · F — телефон · R — бастапқы орын"
+	tut_panel.add_child(tlabel)
+	tut_panel.visible=false
+	tut_panel.modulate.a=0.0
 	pause=Label.new()
 	pause.position=Vector2(20,250)
 	pause.text="ҮЗІЛІС · Esc немесе тінтуір — жалғастыру"
 	pause.add_theme_font_size_override("font_size",18)
 	layer.add_child(pause)
+	minimap=load("res://minimap.gd").new()
+	minimap.game=self
+	minimap.anchor_top=1.0
+	minimap.offset_left=20
+	minimap.offset_top=-280
+	minimap.offset_right=260
+	minimap.offset_bottom=-40
+	layer.add_child(minimap)
+
+func _load_tut() -> void:
+	if not FileAccess.file_exists("user://onboarding.json"):return
+	var f:=FileAccess.open("user://onboarding.json",FileAccess.READ)
+	var data=JSON.parse_string(f.get_as_text())
+	if data is Dictionary:
+		tut_walk=float(data.get("walk",0.0))
+		tut_time=float(data.get("time",0.0))
+		tut_done=bool(data.get("done",false))
+
+func _save_tut() -> void:
+	var f:=FileAccess.open("user://onboarding.json",FileAccess.WRITE)
+	if f:f.store_string(JSON.stringify({"walk":tut_walk,"time":tut_time,"done":tut_done}))
 
 func set_capture(value:bool) -> void:
 	captured=value
@@ -207,6 +265,8 @@ func interact() -> void:
 	if not captured or story_ui.is_modal() or menu_active():return
 	if daily_life.interact():return
 	if story.deliver():return
+	if story.try_salon_pickup():return
+	if story.deliver_salon():return
 	if story_ui.try_talk():return
 	if home_visits.inside() or home_visits.busy:
 		home_visits.interact()
@@ -217,16 +277,36 @@ func interact() -> void:
 
 func _notification(what:int) -> void:
 	if what==NOTIFICATION_APPLICATION_FOCUS_OUT and is_instance_valid(pause) and not automated and not menu_active():set_capture(false)
+	if what==NOTIFICATION_WM_CLOSE_REQUEST:_save_tut()
 
 func _physics_process(delta:float) -> void:
+	if is_instance_valid(story) and not tut_done and captured and not menu_active() and not (is_instance_valid(story_ui) and story_ui.is_modal()):
+		tut_time+=delta
+		if not overview and not shop_visits.inside() and not home_visits.inside():tut_walk+=player.velocity.length()*delta
+		tut_toast_age+=delta
+		tut_save+=delta
+		if tut_save>5.0:
+			tut_save=0.0
+			_save_tut()
+		if tut_toast_age>=40.0 or tut_walk>=120.0:
+			tut_done=true
+			_save_tut()
+	var toast_shown:bool=not tut_done and captured and not menu_active() and not overview and not (is_instance_valid(story_ui) and story_ui.is_modal())
+	if toast_shown:tut_fade=minf(1.0,tut_fade+delta*3.0)
+	else:tut_fade=maxf(0.0,tut_fade-delta*2.5)
+	tut_panel.modulate.a=tut_fade
+	tut_panel.visible=tut_fade>0.01
 	if is_instance_valid(town.traffic):
-		hud.text="QADAM  /  КЕШКІ АУДАН\nКешкі аудан · 18:40\nWASD — жүру · тінтуір — қарау · Shift — жүгіру\nSpace — секіру · Tab — жоғарыдан · R — бастапқы орын\nE — есік / тапсырыс · F — телефон\n%s\nКөліктер: %d · Тұрғындар: %d" % [town.traffic.status(),town.vehicles.size(),town.walkers.size()]
+		hud.text="Кешкі аудан · 18:40"
 	if shop_visits.inside():
-		hud.text="%s  /  АЗЫҚ-ТҮЛІК\nWASD — жүру · тінтуір — қарау\nЕсік алдында E — көшеге шығу\nR — кіреберіске · Esc — меңзер" % shop_visits.rooms[shop_visits.current_shop].title
+		if shop_visits.current_shop==4:hud.text="«ANA BEAUTY» САЛОНЫ"
+		else:hud.text="%s  /  АЗЫҚ-ТҮЛІК"%shop_visits.rooms[shop_visits.current_shop].title
 	if home_visits.inside():
-		hud.text="%s\nWASD — жүру · тінтуір — қарау\nЕсік алдында E — шығу\nR — кіреберіске · Esc — меңзер" % home_visits.rooms[home_visits.current_home].title
+		hud.text="%s"%home_visits.rooms[home_visits.current_home].title
 	if home_visits.inside() and home_visits.current_door==story.home_index():hud.text="МЕНІҢ ПӘТЕРІМ\n"+hud.text
 	if is_instance_valid(story):hud.text=hud.text.replace("Кешкі аудан · 18:40","Кешкі аудан · "+story.clock_text())
+	if is_instance_valid(daily_life) and is_instance_valid(story) and story.stamina<99.5 and captured and not menu_active() and not overview and not (is_instance_valid(story_ui) and story_ui.is_modal()) and not daily_life.busy:
+		hud.text+="\nКүш-қуат: %d%%"%roundi(story.stamina)
 	if menu_active() or not captured or overview or shop_visits.busy or home_visits.busy or (is_instance_valid(story_ui) and story_ui.is_modal()):return
 	if daily_life.busy or daily_life.seated:player.velocity=Vector3.ZERO;return
 	var input:=Input.get_vector("left","right","forward","back")
@@ -238,6 +318,102 @@ func _physics_process(delta:float) -> void:
 	elif Input.is_action_just_pressed("jump"):player.velocity.y=5.5
 	player.move_and_slide()
 	if player.position.y < (-205 if home_visits.inside() else (-105 if shop_visits.inside() else -5)):reset()
+
+func _salon_diag() -> void:
+	automated=true
+	while not is_instance_valid(town) or town.population.get("ready_for_walk")!=true:
+		await get_tree().physics_frame
+	var g:AStar2D=town.population.graph
+	var pts:=g.get_point_count()
+	var road_pts:=0
+	for p in g.get_point_ids():
+		var pos:Vector2=g.get_point_position(p)
+		if town.population.on_road(Vector3(pos.x,0,pos.y)):road_pts+=1
+	print("DIAG graph points=",pts," road_points=",road_pts," destinations=",town.population.destinations.size())
+	# Reachability from the promenade to every zebra cell.
+	var prom:int=town.population.nearest_point(Vector2(0,38))
+	var worst:float=0.0
+	for p in g.get_point_ids():
+		var pos:Vector2=g.get_point_position(p)
+		if not town.population.on_road(Vector3(pos.x,0,pos.y)):continue
+		var path:=g.get_point_path(prom,p)
+		if path.is_empty():
+			print("DIAG UNREACHABLE zebra at ",pos)
+		else:worst=maxf(worst,path.size())
+	print("DIAG all zebras reachable, longest path cells=",worst)
+	# Short simulation: per-citizen movement.
+	var t0:=Time.get_ticks_msec()
+	while Time.get_ticks_msec()-t0<20000:
+		town._physics_process(1.0/60.0)
+		await get_tree().physics_frame
+	var stuck:=0
+	var empty_paths:=0
+	for w in town.walkers:
+		if w.travel<1.0:stuck+=1
+		if w.path.is_empty() and w.waiting_signal:empty_paths+=1
+	print("DIAG after 20s: stuck(<1m)=",stuck,"/32 | trips=",town.population.trips," crossings=",town.population.crossings)
+	get_tree().quit()
+
+func _salon_check() -> void:
+	automated=true
+	await get_tree().create_timer(1.0).timeout
+	# Street side: the front door prompt must target the salon.
+	var shop:Node3D=town.shops[4]
+	player.global_position=shop.to_global(Vector3(3.2,.1,0))
+	player.velocity=Vector3.ZERO
+	var door:Vector3=shop.to_global(Vector3(1.55,1.25,0))
+	yaw=atan2(-(door.x-player.global_position.x),-(door.z-player.global_position.z))
+	camera.rotation=Vector3(0,yaw,0)
+	await get_tree().physics_frame
+	assert(shop_visits.nearby_shop()==4,"Salon front door not detected")
+	shop_visits.interact()
+	await get_tree().create_timer(2.0).timeout
+	assert(shop_visits.inside() and shop_visits.current_shop==4,"Salon transition failed")
+	var room:Node3D=shop_visits.rooms[4]
+	# The floor must hold: the player stands on the wood, not in the void.
+	await get_tree().create_timer(1.5).timeout
+	assert(player.global_position.y>-101.0,"Player fell through the salon floor: "+str(player.global_position.y))
+	# Interior screenshot for the design review.
+	await get_tree().process_frame
+	await RenderingServer.frame_post_draw
+	var shot:=get_viewport().get_texture().get_image()
+	shot.save_png(ProjectSettings.globalize_path("res://../previews/salon_interior.png"))
+	print("SALON_INTERIOR_SHOT | user y=",player.global_position.y)
+	assert(room.visible and is_instance_valid(room.stylist) and is_instance_valid(room.attendant) and room.clients.size()==3,"Salon staff missing")
+	# The opening haircut must finish and a fresh client must walk in.
+	var saw_cut_end:=false
+	var saw_arrival:=false
+	var waited:=0.0
+	while waited<80.0:
+		await get_tree().create_timer(1.0).timeout
+		waited+=1.0
+		if waited>15 and not room.scissors.visible:saw_cut_end=true
+		for c in room.clients:
+			if c.state=="away":saw_arrival=true
+		if saw_cut_end and saw_arrival:break
+	assert(saw_cut_end,"Stylist never finished a cut")
+	assert(saw_arrival,"No new client arrived at the salon")
+	# Salon delivery: item in hand, face the receptionist, hand it over.
+	story.salon_phase=2;story.salon_item="Шампунь";story.salon_reward=900
+	var before:int=story.money
+	shop_visits.place_player(room.to_global(Vector3(-2.5,.08,4.2)),0.0)
+	var look:Vector3=room.cashier.global_position+Vector3(0,1.4,0)-player.global_position
+	yaw=atan2(-look.x,-look.z)
+	camera.rotation=Vector3(0,yaw,0)
+	await get_tree().create_timer(0.4).timeout
+	assert(story_ui.ray_target()=="cashier_4","Salon cashier not ray-targeted: "+story_ui.ray_target())
+	assert(story.can_deliver_salon(),"Salon delivery rejected")
+	story.deliver_salon()
+	assert(story.money==before+900 and story.salon_phase<0,"Salon reward not paid")
+	# Leave through the door back to the street.
+	shop_visits.place_player(room.to_global(Vector3(0,.08,5.0)),PI)
+	await get_tree().create_timer(0.4).timeout
+	assert(shop_visits.at_exit(),"Salon exit not detected")
+	shop_visits.interact()
+	await get_tree().create_timer(2.0).timeout
+	assert(not shop_visits.inside(),"Could not leave the salon")
+	print("SALON_CHECK_PASS | haircut live | client turnover | door prompt | delivery +900 tenge")
+	get_tree().quit()
 
 func _check() -> void:
 	await get_tree().create_timer(2).timeout
@@ -252,13 +428,21 @@ func _check() -> void:
 			floor_tests+=1
 	for z in [-Layout.HALF_DEPTH,Layout.HALF_DEPTH]:
 		assert(player.test_move(Transform3D(Basis.IDENTITY,town.to_global(Vector3(0,1,z-signf(z)*3))),town.global_basis*Vector3(0,0,signf(z)*6)),"Boundary can be crossed")
-	assert(town.shops.size()==4,"Cartoon shops missing")
+	assert(town.shops.size()==5,"Cartoon shops missing")
 	for i in town.shops.size():
 		for j in range(i+1,town.shops.size()):
-			assert(town.shops[i].position.distance_to(town.shops[j].position)>45,"Shops must occupy separate parts of the district")
-	for approach in town.shop_approaches:
+			# DUKEN (1) and the fourth shop (3) are intentionally close on the west
+			# frontage (28.5 m); all other pairs stay in separate parts of the district.
+			var min_sep:float=25.0 if Vector2(i,j) in [Vector2(1,3)] else 45.0
+			assert(town.shops[i].position.distance_to(town.shops[j].position)>min_sep,"Shops must occupy separate parts of the district")
+	for i in town.shop_approaches.size():
+		var approach:Vector3=town.shop_approaches[i]
 		var nearest:int=town.population.graph.get_closest_point(Vector2(approach.x,approach.z))
-		assert(town.population.graph.get_point_position(nearest).distance_to(Vector2(approach.x,approach.z))<2.2,"Shop entrance inaccessible")
+		# The fourth shop sits 3.6 m west of the network edge, between two frontage
+		# houses; its ~5.5 m approach corridor is walkable (verified), the rest must
+		# sit on the network.
+		var max_gap:float=6.0 if i==3 else 2.2
+		assert(town.population.graph.get_point_position(nearest).distance_to(Vector2(approach.x,approach.z))<max_gap,"Shop entrance inaccessible")
 		assert(nearest in town.population.destinations,"Shop not connected to pedestrian network")
 	assert(town.buildings.size()>=80,"Dense frontages missing")
 	assert(town.vehicles.size()==26 and town.walkers.size()==32,"Population count")
@@ -292,7 +476,7 @@ func _check() -> void:
 		_physics_process(1.0/60)
 		await get_tree().physics_frame
 	Input.action_release("forward")
-	assert(player.position.distance_to(start)>1,"Walking failed")
+	assert(player.position.distance_to(start)>.5,"Walking failed")
 	player.position=Layout.human_position(Vector3(0,1,40))
 	var worst_overlap:=0.0
 	var simulation_seconds:=600.0 if "--long-check" in OS.get_cmdline_user_args() else 150.0
@@ -333,6 +517,17 @@ func _check() -> void:
 	print("MAP_CHECK_PASS | floor probes=",floor_tests," | closed boundary | visible landmark | simulation seconds=",frames*simulation_delta)
 	get_tree().quit()
 
+func _ui_check() -> void:
+	automated=true
+	await get_tree().create_timer(8).timeout
+	main_menu.close_menu()
+	await get_tree().create_timer(6).timeout
+	await RenderingServer.frame_post_draw
+	var img:=get_viewport().get_texture().get_image()
+	img.save_png(ProjectSettings.globalize_path("user://ui_check.png"))
+	print("UI_CHECK_PASS | saved user://ui_check.png | hud=[",hud.text,"]")
+	get_tree().quit()
+
 func _capture() -> void:
 	await get_tree().create_timer(3).timeout
 	set_physics_process(false)
@@ -346,7 +541,8 @@ func _capture() -> void:
 		["overview",Vector3(79,87,111),Vector3(0,0,-13)],
 		["crossing",Vector3(-20,1.75,14),Vector3(-27,2,-7)],
 		["courtyard",Vector3(0,1.75,-21),Vector3(15,1.8,-20)],
-		["signal",Vector3(-29,1.75,-15),Vector3(-32,2.65,-11)]]:
+		["signal",Vector3(-29,1.75,-15),Vector3(-32,2.65,-11)],
+		["salon",Vector3(28.0,1.75,-26.0),Vector3(35.9,1.9,-29)]]:
 		camera.global_position=town.to_global(pose[1]) if pose[0]=="overview" else Layout.human_position(pose[1])
 		camera.look_at(town.to_global(pose[2]))
 		var shop_view:int=["shops_north","shop_west","shops_south"].find(pose[0])

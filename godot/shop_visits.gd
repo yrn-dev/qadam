@@ -1,6 +1,7 @@
 extends Node
 signal transition_finished
 const Room=preload("res://shop_room.gd")
+const SalonRoom=preload("res://salon_room.gd")
 var game:Node3D
 var rooms:Array[Node3D]=[]
 var current_shop:=-1
@@ -13,7 +14,7 @@ var return_yaw:=0.0
 func _ready() -> void:
 	game=get_parent()
 	for i in game.town.shops.size():
-		var room:=Node3D.new();room.set_script(Room);room.name="ShopInterior_%d"%i
+		var room:=Node3D.new();room.set_script(SalonRoom if i==4 else Room);room.name="ShopInterior_%d"%i
 		game.add_child(room);room.position=Vector3(i*30,-100,0)
 		room.build(str(game.town.shops[i].get_meta("shop_title")),i);rooms.append(room)
 	var layer:=CanvasLayer.new();layer.layer=10;add_child(layer)

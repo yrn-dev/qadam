@@ -156,7 +156,8 @@ func _spawn_residents(room:Node3D,door:int) -> void:
 	for z in [room.entry.z-1.55,room.entry.z-2.35,room.entry.z-.9]:
 		for x in [0.0,-1.1,1.1,-2.0,2.0]:candidates.append(Vector3(x,.035,z))
 	var occupied:Array[Vector3]=[]
-	var wanted:=1+posmod(door,2)
+	# One recipient per delivery visit; extra hosts look like a crowd bug.
+	var wanted:=1
 	for at in candidates:
 		if residents.size()>=wanted:break
 		if at.distance_to(room.entry)<1.25:continue

@@ -31,6 +31,11 @@ func run() -> void:
 	game=load("res://main.tscn").instantiate();root.add_child(game)
 	await create_timer(2).timeout
 	game.set_physics_process(false);game.town.set_physics_process(false)
+	# Mirror the live game state after the start menu is dismissed (start_menu.gd):
+	# controls are captured and citizens see the player as an obstacle.
+	game.main_menu.active=false
+	game.captured=true
+	game.town.player=game.player
 	population=game.town.population
 	for w in game.town.walkers:
 		check(w.node is CharacterBody3D,"physical citizen")

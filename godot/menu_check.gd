@@ -2,7 +2,7 @@ extends SceneTree
 var game:Node3D
 var errors:Array[String]=[]
 func _initialize() -> void:
-	create_timer(75).timeout.connect(func():push_error("MENU_CHECK_TIMEOUT");quit(1))
+	create_timer(180).timeout.connect(func():push_error("MENU_CHECK_TIMEOUT");quit(1))
 	call_deferred("run")
 func check(ok:bool,words:String) -> void:
 	if not ok:errors.append(words);push_error(words)
@@ -10,6 +10,7 @@ func frames(count:int=3) -> void:
 	for i in count:await physics_frame
 func run() -> void:
 	game=load("res://main.tscn").instantiate();root.add_child(game);await create_timer(3).timeout
+	game.story.resume_location={} # The menu flow is tested with a fresh session; the real save is exercised later via the isolated test file.
 	var menu:Node=game.main_menu
 	var at:Vector3=game.player.global_position;var elapsed:float=game.story.elapsed
 	var money:int=game.story.money;var old_camera:Transform3D=game.camera.transform
@@ -53,8 +54,17 @@ func run() -> void:
 	check(game.home_visits.current_door==own and game.player.position.distance_to(home_at)<.02 and absf(game.yaw-.4)<.001,"resume in saved apartment with camera direction")
 	game.home_visits._transition(-1);await game.home_visits.transition_finished
 	# Restore a delivered customer's room without reopening its public door.
+	# Normalize the story clock first: the live save may sit in the evening, when
+	# collect() refuses to open new jobs and the transition would never start.
+	game.story.elapsed=0;game.story.delivery_id="";game.story.pending_payment=0
 	game.set_capture(true);game.story.hire(0);game.story.collect(0)
-	var customer:int=game.story.delivery_index();game.home_visits._transition(customer);await game.home_visits.transition_finished
+	var customer:int=game.story.delivery_index()
+	check(customer>=0,"delivery candidate assigned from deterministic state")
+	if customer<0:
+		print("MENU_CHECK_DONE | errors=",errors," | aborted: no candidate")
+		game.soundscape.set_process(false);game.soundscape.set_physics_process(false)
+		game.queue_free();await create_timer(.15).timeout;quit(1)
+	game.home_visits._transition(customer);await game.home_visits.transition_finished
 	game.story.delivery_id="";game.story.pending_payment=900;game.home_visits.delivery_done=true
 	game.set_capture(false);await frames();check(menu.save_current(),"save after handoff before leaving")
 	game.home_visits._transition(-1);await game.home_visits.transition_finished

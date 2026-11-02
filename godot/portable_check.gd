@@ -15,7 +15,7 @@ func run():
 	game.set_physics_process(false);game.story.set_process(false)
 	var ui=game.story_ui;ui._register_actors();ui.open_chat("citizen_00")
 	check(not ui.api_key().is_empty(),"portable LLM config available")
-	check(game.town.shops.size()==4 and game.home_visits.rooms.size()==5,"map and interiors loaded")
+	check(game.town.shops.size()==5 and game.home_visits.rooms.size()==5,"map and interiors loaded")
 	game.speech.enabled=true;game.speech.speak(ui.profiles.citizen_00.greeting,"citizen_00")
 	check(game.speech.cache_hits==1 and game.speech.speaker.playing,"baked voice loaded from PCK")
 	if "--voice-live" in OS.get_cmdline_user_args():

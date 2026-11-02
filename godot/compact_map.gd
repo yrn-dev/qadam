@@ -89,6 +89,115 @@ func cartoon_shop(title:String,at:Vector3,angle:float) -> void:
 	label.modulate=Color("fff1ce");label.outline_size=4;label.outline_modulate=Color("263d43")
 	label.position=Vector3(1.95,2.8,0);label.rotation.y=PI/2;root.add_child(label)
 
+func _gable_mesh(depth:float,base_y:float,apex_y:float,length:float) -> Mesh:
+	# Ridge along local Z (parallel to the street); the pediment triangles
+	# face the building ends (+/-Z) and the slopes overhang front and back.
+	var mesh:=ArrayMesh.new()
+	var d2:=depth*0.5;var l2:=length*0.5
+	var pos:=PackedVector3Array([
+		Vector3(-d2,base_y,-l2),Vector3(d2,base_y,-l2),Vector3(0,apex_y,-l2),
+		Vector3(-d2,base_y,l2),Vector3(d2,base_y,l2),Vector3(0,apex_y,l2)])
+	var idx:=PackedInt32Array([0,2,1,3,4,5,1,4,5,1,5,2,0,3,5,0,5,2])
+	var nrm:=PackedVector3Array();var uv:=PackedVector2Array()
+	for i in 6:nrm.append(Vector3.ZERO);uv.append(Vector2.ZERO)
+	var arr:Array=[]
+	for i in Mesh.ARRAY_MAX:arr.append(null)
+	arr[0]=pos;arr[1]=nrm;arr[4]=uv;arr[12]=idx
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES,arr)
+	return mesh
+
+func _facade_box(root:Node3D,label:String,p:Vector3,s:Vector3,col:Color) -> MeshInstance3D:
+	var m:=MeshInstance3D.new();m.name=label
+	var b:=BoxMesh.new();b.size=s;m.mesh=b
+	var mat:=StandardMaterial3D.new();mat.albedo_color=col;mat.roughness=.9
+	m.material_override=mat;root.add_child(m);m.position=p
+	static_visuals.append(m)
+	return m
+
+func salon_facade(title:String,at:Vector3,angle:float) -> void:
+	# Faithful low-poly build of the "Ana Beauty Salon" reference: pink gabled
+	# house, white sign board, striped awning, window with a flower box and a
+	# pink door with a yellow knob. Front faces local +X like every other shop.
+	var root:=Node3D.new();root.name="Shop_"+title;add_child(root)
+	root.position=at;root.rotation.y=angle
+	root.set_meta("shop_title",title)
+	root.set_meta("source_model","procedural facade (ref: Ana Beauty Salon by endomirebus, sketchfab.com, CC-BY)")
+	buildings.append(root);shops.append(root)
+	shop_approaches.append(to_local(root.to_global(Vector3(4.1,0,0))))
+	var pink:=Color("f2a7c3");var white:=Color("faf6f0")
+	var roofc:=Color("cf6b9e");var fascia:=Color("f9cfe2")
+	_facade_box(root,"SalonBase",Vector3(0,.25,0),Vector3(5.3,.5,7.2),Color("d98bb0"))
+	_facade_box(root,"SalonBody",Vector3(0,1.85,0),Vector3(5.2,3.0,7.0),pink)
+	for sx in [-1,1]:
+		for sz in [-1,1]:_facade_box(root,"SalonTrim",Vector3(sx*2.55,1.85,sz*3.45),Vector3(.22,3.2,.22),Color("ece7e2"))
+	# Gabled roof like the reference: ridge runs along the street (local Z),
+	# pink slopes overhang the front and back walls, pediments sit on the ends.
+	var gable:=MeshInstance3D.new();gable.name="SalonGable"
+	gable.mesh=_gable_mesh(5.9,3.3,4.5,7.5)
+	var gmat:=StandardMaterial3D.new();gmat.albedo_color=roofc;gmat.roughness=.95
+	gmat.cull_mode=BaseMaterial3D.CULL_DISABLED
+	gable.material_override=gmat;root.add_child(gable);static_visuals.append(gable)
+	_facade_box(root,"EaveFasciaF",Vector3(2.95,3.22,0),Vector3(.18,.18,7.6),fascia)
+	_facade_box(root,"EaveFasciaB",Vector3(-2.95,3.22,0),Vector3(.18,.18,7.6),fascia)
+	for ez in [-3.76,3.76]:
+		for sgn in [-1,1]:
+			var edge:=MeshInstance3D.new()
+			var eb:=BoxMesh.new();eb.size=Vector3(3.3,.14,.14);edge.mesh=eb
+			var em:=StandardMaterial3D.new();em.albedo_color=fascia;em.roughness=.9
+			edge.material_override=em;root.add_child(edge)
+			edge.position=Vector3(sgn*1.475,3.9,ez)
+			edge.rotation.z=atan2(1.2,-sgn*2.95)
+			static_visuals.append(edge)
+	# Shop name in white, like the reference lettering.
+	var sign:=Label3D.new();sign.text="Ana";sign.font_size=64;sign.pixel_size=.011
+	sign.modulate=Color("ffffff");sign.outline_size=5;sign.outline_modulate=Color("b05583")
+	sign.position=Vector3(2.72,3.02,0);sign.rotation.y=PI/2;root.add_child(sign)
+	var sign2:=Label3D.new();sign2.text="Beauty Salon";sign2.font_size=26;sign2.pixel_size=.0085
+	sign2.modulate=Color("ffffff");sign2.outline_size=3;sign2.outline_modulate=Color("b05583")
+	sign2.position=Vector3(2.7,2.72,0);sign2.rotation.y=PI/2;root.add_child(sign2)
+	# Window on the street-left side (local -Z) with a daisy flower box.
+	_facade_box(root,"WindowGlass",Vector3(2.6,1.5,-1.45),Vector3(.06,1.4,2.6),Color("9fb8cc"))
+	_facade_box(root,"WindowFrameL",Vector3(2.62,1.5,-2.83),Vector3(.12,1.62,.16),white)
+	_facade_box(root,"WindowFrameR",Vector3(2.62,1.5,-0.07),Vector3(.12,1.62,.16),white)
+	_facade_box(root,"WindowFrameT",Vector3(2.62,2.33,-1.45),Vector3(.12,.16,2.92),white)
+	_facade_box(root,"WindowFrameB",Vector3(2.62,.67,-1.45),Vector3(.12,.16,2.92),white)
+	_facade_box(root,"FlowerPlanter",Vector3(2.72,.78,-1.45),Vector3(.3,.24,2.9),Color("58b368"))
+	for i in 4:
+		var petal:=MeshInstance3D.new()
+		var pm:=SphereMesh.new();pm.radius=.16;pm.height=.32;pm.radial_segments=8;pm.rings=6;petal.mesh=pm
+		var pmat:=StandardMaterial3D.new();pmat.albedo_color=Color("ffffff");pmat.roughness=.8
+		petal.material_override=pmat;root.add_child(petal)
+		petal.position=Vector3(2.84,1.02,-2.3+i*.6);petal.scale=Vector3(1,.95,1)
+		static_visuals.append(petal)
+		var core:=MeshInstance3D.new()
+		var cm:=SphereMesh.new();cm.radius=.06;cm.height=.12;cm.radial_segments=7;cm.rings=5;core.mesh=cm
+		var cmat:=StandardMaterial3D.new();cmat.albedo_color=Color("f4c542");cmat.roughness=.8
+		core.material_override=cmat;root.add_child(core);core.position=Vector3(2.9,1.02,-2.3+i*.6)
+		static_visuals.append(core)
+	# Striped awning over the window.
+	var awning:=Node3D.new();awning.name="Awning";awning.position=Vector3(2.8,2.3, -1.45);awning.rotation.z=-.25;root.add_child(awning)
+	for i in 6:
+		var stripe:=MeshInstance3D.new()
+		var b:=BoxMesh.new();b.size=Vector3(1.1,.06,.46);stripe.mesh=b
+		var mat:=StandardMaterial3D.new();mat.albedo_color=white if i%2==0 else pink;mat.roughness=.95
+		stripe.material_override=mat;awning.add_child(stripe);stripe.position=Vector3(0,0,-1.15+i*.46)
+		static_visuals.append(stripe)
+	# Pink door with a glass pane, yellow knob and a white step on the right.
+	_facade_box(root,"SalonDoor",Vector3(2.6,1.15,0.9),Vector3(.08,2.3,1.0),Color("e58fb4"))
+	_facade_box(root,"DoorGlass",Vector3(2.66,1.85,0.9),Vector3(.05,.9,.7),Color("9fb8cc"))
+	_facade_box(root,"DoorFrameL",Vector3(2.62,1.15,0.32),Vector3(.12,2.5,.12),white)
+	_facade_box(root,"DoorFrameR",Vector3(2.62,1.15,1.48),Vector3(.12,2.5,.12),white)
+	_facade_box(root,"DoorFrameT",Vector3(2.62,2.42,0.9),Vector3(.12,.14,1.3),white)
+	_facade_box(root,"DoorStep",Vector3(2.72,.06,0.9),Vector3(.6,.12,1.35),white)
+	var knob:=MeshInstance3D.new()
+	var ks:=SphereMesh.new();ks.radius=.055;ks.height=.11;knob.mesh=ks
+	var kmat:=StandardMaterial3D.new();kmat.albedo_color=Color("f4c542")
+	knob.material_override=kmat;root.add_child(knob);knob.position=Vector3(2.7,1.05,0.52)
+	static_visuals.append(knob)
+	# Symmetric extents, so the axis-aligned body matches the rotated facade (PI).
+	collision(Vector3(at.x,1.7,at.z),Vector3(5.3,3.4,7.2),"SalonBody")
+	footprints.append(AABB(Vector3(at.x-2.65,at.y,at.z-3.6),Vector3(5.3,3.4,7.2)))
+
 func road(a:Vector3,b:Vector3,width:float=8) -> void:
 	var length:=a.distance_to(b)
 	var count:=ceili(length/8)
@@ -159,6 +268,7 @@ func _ready() -> void:
 		for z in [-40.0,-22.0,22.0,40.0]:asset("tree",Vector3(x,0,z),.8,float(z))
 	for x in [-22.0,22.0,-32.5,32.5]:
 		for z in [-47.0,-29.0,-14.0,14.0,29.0,47.0]:
+			if x==32.5 and z==-29:continue # keep the ANA BEAUTY frontage clear
 			var lamp_z:float=-50.5 if x==-32.5 and z==-47 else z
 			asset("lamp",Vector3(x,0,lamp_z),1,PI if x<0 else 0,true)
 			var light:=OmniLight3D.new()
@@ -180,6 +290,8 @@ func _ready() -> void:
 	# Appended after existing buildings so saved residential IDs remain stable.
 	cartoon_shop("",Vector3(-40,.035,28.35),PI/2)
 	shops.back().set_meta("shop_title","Бос дүкен")
+	# ANA BEAUTY salon: pink gabled house on the east frontage (see facade below).
+	salon_facade("ANA BEAUTY",Vector3(35.9,.035,-29),PI)
 	traffic=Node.new()
 	traffic.set_script(preload("res://district_traffic.gd"))
 	add_child(traffic)
